@@ -1,0 +1,51 @@
+The figure below shows the raw choice data for the participants that have been excluded.
+An online app where the full dataset can be interactively explored is hosted at \mbox{\href{https://fdabl.shinyapps.io/MCMCP/}{https://fdabl.shinyapps.io/MCMCP/}}. All materials are available at \mbox{\href{https://github.com/fdabl/MCMCP}{https://github.com/fdabl/MCMCP}}.
+
+The participant on the top left was excluded due to a bias towards small values, while three other participants were excluded due to a bias towards large values. The fifth participant who was excluded did not seem to understand the experiment, unsystematically alternating between images with a higher and lower number of red dots.
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(message = FALSE, echo = FALSE, warning = FALSE)
+```
+
+```{r}
+library('dplyr')
+library('ggmcmc')
+library('stringr')
+library('ggplot2')
+library('gridExtra')
+source('../exploring/prepare_exploring.R') # provides the data frame d
+
+# keep the participants who have been removed
+to_remove = read.csv('../exploring/ids.csv') %>% filter(!(number %in% c(10, 11, 15, 22, 34)))
+d = filter(d, !(id %in% to_remove$id)) %>% 
+  mutate(language = as.factor(str_to_lower(language))) %>% tbl_df
+
+# TODO: write a function that quantifiers the distance to the mean
+```
+
+```{r, fig.height=18, fig.width = 16, fig.cap="Raw data for the excluded participants. Blue line indicates the mode of the subjective probability distribution for that specific quantifier (estimated without excluded participants)."}
+ids = unique(d$id)
+
+plot_data = function(id) {
+  test = melt_data(d, id) %>%
+    mutate(Predictions = ifelse(chose_higher, pred_distance, 1 - pred_distance),
+           mode = mode_distance)
+  
+  p = ggplot(test, aes(x = trial, y = value)) +
+        geom_point(size = 3, color = 'grey30') +
+      
+        geom_path(data = filter(test, choice == 'number_chosen'), size = 1.2) +
+        xlab('Trial') + ylab('Number') +
+        geom_hline(yintercept = c(108, 216, 324, 432), linetype = 'dotted') +
+        geom_hline(aes(yintercept = mode), color = 'blue') +
+        scale_y_continuous(breaks = scales::pretty_breaks(n = 15),
+                           limits = c(0, 432)) + theme_bw() +
+        theme(plot.title = element_text(size = 24),
+              axis.title = element_text(size = 22))
+  
+  p + facet_wrap(~ quantifier)
+}
+
+grid.arrange(plot_data(ids[1]), plot_data(ids[2]),
+             plot_data(ids[3]), plot_data(ids[4]), plot_data(ids[5]))
+```

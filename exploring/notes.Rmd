@@ -1,0 +1,240 @@
+---
+title: "MCMCP Notes"
+runtime: shiny
+output: html_document
+---
+
+### Ramblings
+```{r, echo = FALSE}
+library('VGAM')
+library('shiny')
+N = 432
+n = 10000
+
+column(3, numericInput('a', label = 'a', value = 10))
+column(3, numericInput('b', label = 'b', value = 10))
+```
+
+
+```{r, echo = FALSE}
+renderPlot({
+  plot(density(rbetabinom.ab(n, N, input$a, input$b)))
+})
+```
+
+### Exploring the data and model predictions
+The blue line indicates the (mean of the) mode for the specific quantifier. The mode values seem intuitive, except for the Barker model for quantifiers 'Very few' (value 214) and 'Almost all' (value 224); but see below for a table with the modes.
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+library('VGAM')
+library('dplyr')
+library('shiny')
+library('ggplot2')
+library('reshape2')
+library('RColorBrewer')
+source('prepare_exploring.R')
+
+# NOTE: Participants 37 and 16 have quite a high understanding of 'about half'
+# but let's keep it for now ...
+dat = read.csv('../data/cleaned_data.csv', stringsAsFactors = FALSE)
+
+column(3,
+       selectInput("id", label = "Participant",
+            choices = setNames(unique(dat$id), seq(45))))
+column(3, selectInput("model", label = "Model",
+            choices = c('distance', 'closer', 'barker')))
+column(3, selectInput("quantifier", label = "Quantifier",
+            choices = c('Half', 'About half', 'Less than half', 'Few', 'Very few',
+                        'Many', 'Most', 'The majority', 'Some', 'Almost all')))
+br()
+column(3, checkboxInput("plotQuant", label = "Plot quantifier"))
+```
+
+
+```{r, echo = FALSE}
+plotHeight = reactive({
+    ifelse(input$plotQuant, 1200, 400)
+})
+    
+renderPlot({
+    test = melt_data(d, input$id, 'id')
+    
+    if (input$plotQuant) {
+        test = melt_data(d, input$quantifier, 'quant')
+    }
+    
+    test = test %>% 
+        mutate(mode = test[[paste0('mode_', input$model)]],
+               predictions = test[[paste0('pred_', input$model)]],
+               predictions = ifelse(chose_higher, predictions, 1 - predictions))
+    
+    p = ggplot(test, aes(x = trial, y = value)) +
+          geom_point(aes(color = predictions), size = 3) +
+          scale_colour_continuous(low = 'red', high = 'green', limits = c(0, 1)) +
+        
+          #geom_text(aes(x = trial, label = round(predictions, 2))) +
+          geom_path(data = filter(test, choice == 'number_chosen'), size = 1.2) +
+          xlab('Trial') + ylab('Number') +
+          geom_hline(yintercept = c(108, 216, 324, 432), linetype = 'dotted') +
+          geom_hline(aes(yintercept = mode), color = 'blue') +
+          scale_y_continuous(breaks = scales::pretty_breaks(n = 15),
+                             limits = c(0, 432)) + theme_bw()
+    
+    if (input$plotQuant) {
+        
+        all_ids = unique(d$id)
+        test_ids = unique(test$id)
+        labels = as.list(sapply(test_ids, function(id) which(id == all_ids)))
+        
+        labeller = function(variable, value) {
+            value = droplevels(value)
+            labels[value]
+        }
+        
+        p + facet_wrap(~ id, ncol = 3, labeller = labeller)
+        
+    } else {
+        p + facet_wrap(~ quantifier)
+    }
+    
+}, height = plotHeight)
+```
+    
+Here we see the whole dataset with the predictions. The predictions are for the number chosen. You can filter for a quantifier by using the search box. Below is another table that includes the a and b values.
+
+```{r, echo = FALSE}
+renderDataTable({
+    d = d %>% 
+        mutate(pred_barker = pred_barker_chosen,
+               pred_distance = pred_distance_chosen,
+               pred_closer = pred_closer_chosen) %>% 
+        
+        select(id_int, quantifier, trial, number_chosen, number_not_chosen,
+               pred_distance, pred_closer, pred_barker, mode_distance,
+               mode_closer, mode_barker) %>% 
+        
+        rename(id = id_int, quant = quantifier, chosen = number_chosen,
+               not_chosen = number_not_chosen, pred_dist = pred_distance,
+               mode_dist = mode_distance)
+    d
+})
+```
+
+### Computation of the mode
+Below is the code we used to calculate the mode in the distance and closer model.
+```{r}
+get_mode = function(a, b) {
+    #
+    # a > 1 & b > 1: Mode = (a - 1) / (a + b + 2)
+    # a > 1 & b < 1: Mode = 432
+    # a < 1 & b > 1: Mode = 0
+    modeFl = ifelse(a > 1 & b > 1, (a - 1) / (a + b + 2),
+                    ifelse(a > 1 & b < 1, 1, 0)) * 432
+    
+    mode = ifelse(modeFl - trunc(modeFl) > .5, round(modeFl), trunc(modeFl))
+    mode
+}
+```
+
+There are a few points I don't understand:
+
+- shouldn't the mode come from a beta-binomial? (a - 1) / (a + b + 2) is the mode of a beta
+- while (a - 1) / (a + b + 2) is the mode of a beta, the condition for a > 1 and b < 1 seems incorrect, because for a beta with a = .5, b = 2
+
+```{r}
+a = .5
+b = .2
+get_mode(a, b)
+
+x = rbeta(100000, a, b)
+hist(x) # mode is 1, i.e. 432
+```
+
+```{r}
+renderDataTable({
+    d = d %>% 
+        mutate(pred_barker = pred_barker_chosen,
+               pred_distance = pred_distance_chosen,
+               pred_closer = pred_closer_chosen) %>% 
+        
+        select(quantifier, mode_distance, mode_closer, mode_barker,
+               a_distance, b_distance, a_closer, b_closer, a_barker, b_barker) %>% 
+        
+        rename(quant = quantifier, mode_dist = mode_distance)
+    d
+})
+```
+
+### Model comparison
+```{r, warning = FALSE, message = FALSE, echo = FALSE}
+source('prepare_exploring.R')
+```
+
+Looking at the likelihoods, the distance model comes out to be the best, followed by the closer model. The barker model is the worst.
+```{r, echo = FALSE}
+likelihoods = select(d, pred_barker, pred_distance, pred_closer) %>% apply(., 2, sum)
+names(likelihoods) = paste0('likelihood_', c('barker', 'distance', 'closer'))
+sort(likelihoods, decreasing = TRUE)
+```
+
+A similar conclusion is reached when looking at the DIC. The lower the DIC, the better.
+```{r, echo = FALSE}
+namess = paste0('DIC_', c('barker', 'distance', 'closer'))
+dics = setNames(c(params_barker$dic, params_distance$dic, params_closer$dic), namess)
+sort(dics)
+```
+
+### Raw Participant observations
+- **4:** 'about half' proposal weird
+- **5:** 'some' too high
+- **6:** 'half proposals' good, but participant did not make the 'correct' choice
+- **7:** 'less than half' is about the same as 'some'; 'most' was interpreted as 'all', and 'many' seems to high also
+- **8:** 'some' had one weird choice, but was corrected immediately
+- **9:** seemed inattentive at 'almost all', 'many', and 'most', but corrected it
+- **10:** **much too low!** 'about half', 'many' and 'some' are much too low (around 20) **0**
+- **11:** **much too high!** 'half', 'many', and 'most' are at about 350-432 **0**
+- **13:** seems to have misclicked at 'half', but corrected
+- **14:** was too low at 'about half' (around 110), and misclicked at 'very few' several times
+- **15:** **jumps around!**, zig zag zig zag **0**
+- **16:** 'about half' is too high, than too low, 'most' and 'some' jump around **3**
+- **17:** 'very few' are much too high, jumps a bit at 'few' and 'half' **4**
+- **18:** **too low**; 'half' is much too low (around 50), 'most' seems too high (around 430), and 'very few' jumps a lot **0**
+- **19:** 'about half' is much too high **7**
+- **22:** **so high!** 'about half', 'half', 'most', and even 'the majority' seem much too high **0**
+- **25:** 'many' is at the ceiling (432)
+- **27:** 'most' is at the ceiling; the rest is quite zig-zaggy **5**
+- **28:** seems to have misclicked once at 'the majority'
+- **29:** seems to have misclicked at 'very few' -- but why are the models predicting this outlier?
+- **30:** 'very few' is at 'about half' about half the time
+- **31:** 'many' is a at the ceiling for the first ten trials
+- **32:** 'some' is jumping around quite a bit!
+- **33:** **zig zag!** and 'many' settles at around 100, while 'less than half' is at the ceiling ... **1**
+- **34:** **ceiling!** even 'few' is at ceiling **5**
+- **37:** the proposals for 'half' is pretty bad at first, for 'some' it's also a bit awkward
+- **39:** 'the majority' has too clustered proposals
+- **40:** 'many' is again at ceiling
+- **41:** 'many' is again at ceiling
+- **42:** 'about half' is at ceiling! 'very few' has too clustered proposals in the middle
+- **43:** 'the majority' was at ceiling, than misclicked (?) and gradually got up again
+- **44:** 'few' seems a bit off
+- **45:** 'most' is higher than 'almost all'
+- **46:** 'about half' is much too high (around 400), while 'few' is at bottom (around 0); 'many' is at ceiling again
+- **47:** 'half' is too low (around 70), and 'very few' is quite zig zaggy
+- **48:** 'few' is lower than 'very few', 'almost all' is at ceiling (432)
+- **49:** 'few' is at bottom (around 0)
+
+### Quantifier observations
+- **Half:** 18, 47, and 11 seem completely off. 37 got a series of suboptimal proposals.
+- **About half:** 22 and 19 are at ceiling
+- **Less than half:** 4 got unlucky in her proposals at the beginning; 23 misclicked; 15, 27, and 33 are jumping
+- **Few:** 33 is at ceiling, while three participants are at bottom (0)
+- **Very few:** 2 got unlucky in the proposals; there is quite some inconsistent zig zag across participants
+- **Many:** often is at ceiling, but participant 10 is at bottom (around 20)
+- **Most:** seems fine, except the occasional switch from 16
+- **The majority:** seems fine, except a blip from 28
+- **Some:** is a bit inconsistent across participants, with quite some zig zag
+- **Almost all:** seems fine, except a few blips from 40, 9, 23, and 15
+
+Because of this, I removed participants 10, 11, 15, 22, 34. This lead to the convergence of both the
+'closer-to-the-mode' and the 'distance-to-the-mode' models. The Barker model only converged after fixing
+the Parameter c = 0.5.
