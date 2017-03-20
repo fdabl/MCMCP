@@ -5,22 +5,7 @@ library('ggplot2')
 library('reshape2')
 library('RColorBrewer')
 
-# exclude pilot data
-pilot_id = read.csv('../data/pilot_data.csv') %>% select(id) %>% unique()
-dat = droplevels(filter(read.csv('../data/all_data.csv'), !(id %in% pilot_id[, 1])))
-
-d = dat %>% 
-  filter(trial > 10) %>%
-  mutate(time_minutes = time / 60000) %>% 
-  mutate(clicked_left = ifelse(clicked_left == 'left', 1, 0)) %>% 
-  mutate(quantifier = as.character(quantifier)) %>% 
-  mutate(quantifier_num = as.numeric(factor(quantifier))) %>% 
-  mutate(chose_higher = as.numeric(number_chosen > number_not_chosen)) %>% 
-  mutate(higher = ifelse(number_chosen > number_not_chosen, number_chosen, number_not_chosen)) %>%
-  mutate(lower = ifelse(number_chosen < number_not_chosen, number_chosen, number_not_chosen)) %>% 
-  mutate(id_int = rep(seq(50), each = 160)) # 160 trials
-## -> also saved under clean_data.csv
-
+d = read.csv('../data/all_data_cleaned.csv')
 
 ### PREPARE (MEAN OF) MODEL POSTERIOR PARAMETERS
 get_model_params = function(model = 'distance') {
