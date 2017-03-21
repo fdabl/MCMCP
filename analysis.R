@@ -55,11 +55,11 @@ run_model <- function(model_name = 'barker', save = TRUE, iter = 20000, burnin =
     inits = NULL,
     parameters.to.save = params,
     model.file = MODEL,
-    n.chains = 2,
+    n.chains = parallel::detectCores(),
     n.adapt = 1000,
     n.iter = iter + burnin,
     n.burnin = burnin,
-    n.thin = 2,
+    n.thin = 10,
     modules = c("mix"),
     DIC = TRUE,
     parallel = TRUE,
@@ -74,4 +74,4 @@ run_model <- function(model_name = 'barker', save = TRUE, iter = 20000, burnin =
   }
 }
 
-run_model(model_name = 'distance', iter = 100000)
+run_model(model_name = 'barker', iter = 5000)
